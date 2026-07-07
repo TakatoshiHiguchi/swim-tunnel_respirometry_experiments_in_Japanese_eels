@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use these data or scripts, please cite the archived repository release on Zenodo."
+title: "Reanalysis data for swim-tunnel respirometry experiments in Japanese eels"
+authors:
+  - family-names: "Higuchi"
+    given-names: "T."
+version: "1.0.0"
+date-released: "2026-07-07"
+url: "https://github.com/YOUR-USERNAME/YOUR-REPOSITORY"

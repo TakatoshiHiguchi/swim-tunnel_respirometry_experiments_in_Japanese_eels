@@ -1,0 +1,42 @@
+DATA LICENSE
+
+This repository contains processed datasets and derived analysis outputs used for
+the revised analyses of swim-tunnel respirometry experiments in Japanese eels
+(Anguilla japonica).
+
+Unless otherwise noted, the data files in the following directories are released
+under the Creative Commons Attribution 4.0 International License (CC BY 4.0):
+
+  data/raw/
+  data/processed/
+  outputs/tables/
+
+This license permits sharing, copying, redistribution, adaptation, and reuse of
+the data for any purpose, including research and publication, provided that
+appropriate credit is given to the original authors and source.
+
+Recommended attribution:
+
+  Higuchi, T. et al. Reanalysis data for swim-tunnel respirometry experiments
+  on Japanese eels (Anguilla japonica). [Repository name], version 1.0.0.
+  [Zenodo DOI or repository URL]
+
+When using these data, please cite both the associated journal article and the
+archived repository release, once available.
+
+The Python scripts in this repository are not covered by this data license.
+They are distributed separately under the terms specified in the LICENSE file.
+
+The processed datasets provided here include individual-level swimming and
+metabolic endpoints, speed-step-level MO2 and COT values, statistical summaries,
+and figure-summary data. Raw oxygen time-series data are not included in this
+repository and may be available from the corresponding author upon reasonable
+request.
+
+The data are provided "as is", without warranty of any kind. The authors make no
+guarantees regarding fitness for a particular purpose. Users are responsible for
+checking whether the data are appropriate for their intended analyses.
+
+License summary:
+  Creative Commons Attribution 4.0 International (CC BY 4.0)
+  https://creativecommons.org/licenses/by/4.0/

@@ -1,2 +1,173 @@
-# swim-tunnel_respirometry_experiments_in_Japanese_eels
-Reanalysis data and Python scripts for swim-tunnel respirometry experiments in Japanese eels
+# Analysis package for Japanese eel swim-tunnel manuscript
+
+This package contains Python scripts for the revised statistical analyses requested during major revision.
+
+The workflow is designed around two supplementary data tables:
+
+- `individual_endpoints.xlsx`: individual/trial-level endpoint data
+- `speed_step_data.xlsx`: speed-step-level MO2 and COT data
+
+The scripts first convert the relevant Excel sheets to UTF-8 CSV files, then generate statistical summaries, figure-ready summaries, and optional figures.
+
+## Should the Excel files be converted to CSV?
+
+Yes, for the analysis repository it is recommended to keep CSV versions of the analysis tables.
+
+Reasons:
+
+1. CSV files are plain text and are easy to inspect in GitHub.
+2. Git can track changes in CSV files more transparently than in `.xlsx` files.
+3. CSV files reduce dependence on Excel formatting or hidden workbook metadata.
+4. The public repository can include a reproducible pipeline: `Excel supplement -> CSV analysis input -> statistical outputs`.
+
+Recommended practice:
+
+- Keep the final `.xlsx` files as polished supplementary tables for journal submission.
+- Export the analysis sheets to CSV and use those CSV files as the direct input to the Python analysis scripts.
+- Deposit both the supplementary `.xlsx` files and CSV analysis inputs in Zenodo, or provide the `.xlsx` files as supplementary material and the CSV/code in Zenodo.
+
+## Directory structure
+
+```text
+step3_python_analysis_package/
+  README.md
+  requirements.txt
+  run_all.py
+  scripts/
+    00_export_xlsx_to_csv.py
+    01_validate_inputs.py
+    02_reanalysis_individual_endpoints.py
+    03_speed_step_summaries.py
+    04_make_figures.py
+  data/
+    raw/
+      individual_endpoints.xlsx
+      speed_step_data.xlsx
+    processed/
+      individual_endpoints.csv
+      speed_step_data.csv
+  outputs/
+    tables/
+    figures/
+```
+
+## Setup
+
+Install the required packages:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+Copy the two source Excel files into `data/raw/`:
+
+```text
+data/raw/individual_endpoints.xlsx
+data/raw/speed_step_data.xlsx
+```
+
+## Run all analyses
+
+From the package root:
+
+```bash
+python run_all.py
+```
+
+This will produce:
+
+```text
+outputs/tables/Table_S4_statistical_summary.csv
+outputs/tables/Table_S4_statistical_summary.xlsx
+outputs/tables/Table_S4_body_size_sensitivity.csv
+outputs/tables/Table_S4_body_size_sensitivity.xlsx
+outputs/tables/speed_n_summary.csv
+outputs/tables/mo2_speed_summary_by_condition.csv
+outputs/tables/cot_speed_summary_by_condition.csv
+outputs/figures/fig_mo2_speed_by_condition.png
+outputs/figures/fig_cot_speed_by_condition.png
+```
+
+## Main statistical framework
+
+The analysis is deliberately not formulated as a full factorial model because the experiment was not fully factorial. Instead, the scripts implement three prespecified contrasts:
+
+1. **FW25 vs FW18 in yellow eels**  
+   Paired comparison of sequential trials in the same individuals. The estimate is FW25 minus FW18. This comparison should be described as a temperature-associated difference under fixed trial order.
+
+2. **Y2 FW18 vs Y2 SW18**  
+   Independent exploratory freshwater-seawater comparison at 18 °C. The estimate is SW18 minus FW18. This should be described as a salinity-associated comparison, not as a definitive salinity effect.
+
+3. **SW18 Y2 vs SW18 S1**  
+   Independent stage-associated comparison under SW18. The estimate is S1 minus Y2. This should be interpreted cautiously because silvering stage and body size are partly confounded.
+
+For each response variable, the scripts report:
+
+- group sample sizes
+- means, SDs, medians
+- effect estimate
+- bootstrap 95% CI
+- permutation-test p-value
+- Benjamini-Hochberg FDR-adjusted p-value within each comparison and analysis set
+- exclusion counts and notes
+
+## Inclusion rules
+
+### Ucrit variables
+
+Used when `ucrit_status` is one of:
+
+```text
+valid
+boundary_ambiguous
+protocol_check
+```
+
+Excluded when status is missing, `not_estimable`, or `excluded`.
+
+### Uopt, minCOT, and MO2 at Uopt
+
+Main analysis uses:
+
+```text
+valid
+boundary_estimate
+```
+
+Sensitivity analysis uses only:
+
+```text
+valid
+```
+
+Rows labelled `single_active_point`, `not_estimable`, or `excluded` are excluded.
+
+### Low-flow MO2
+
+Only rows with:
+
+```text
+lowflow_mo2_status = valid
+```
+
+are used.
+
+## Body-size sensitivity analysis
+
+For the SW18 Y2 vs S1 comparison, the scripts fit exploratory OLS models:
+
+```text
+response ~ stage_S1 + TL
+response ~ stage_S1 + BW
+```
+
+TL and BW are not entered simultaneously. These models are exploratory and should be used to assess sensitivity of stage-associated differences to body-size adjustment, not to make strong causal claims.
+
+## Reproducibility note
+
+Set and record the random seed used for bootstrap and permutation tests. The default seed is 20260625.
+
+
+## LICENSE
+
+Code is released under the MIT License; data are released under CC BY 4.0

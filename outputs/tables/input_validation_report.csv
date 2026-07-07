@@ -1,0 +1,10 @@
+﻿check,value,status
+Table S2 rows,35,PASS
+Table S3 rows,146,INFO
+Table S2 unique trial_id,35,PASS
+Table S3 unique trial_id,33,INFO
+Table S2 count FW25,10,INFO
+Table S2 count FW18,10,INFO
+Table S2 count SW18,15,INFO
+Confirmed missing speed-step data: E09_FW25,absent from Table S3,PASS
+Confirmed missing speed-step data: E11_SW18,absent from Table S3,PASS
