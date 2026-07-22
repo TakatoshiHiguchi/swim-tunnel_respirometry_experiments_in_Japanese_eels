@@ -1,48 +1,27 @@
 # Analysis package for Japanese eel swim-tunnel manuscript
 
-This package contains Python scripts for the revised statistical analyses requested during major revision.
+This repository uses two processed CSV files as the direct analysis inputs:
 
-The workflow is designed around two supplementary data tables:
+- `data/processed/individual_endpoints.csv`: individual/trial-level endpoint data
+- `data/processed/speed_step_data.csv`: speed-step-level MO2 and COT data
 
-- `individual_endpoints.xlsx`: individual/trial-level endpoint data
-- `speed_step_data.xlsx`: speed-step-level MO2 and COT data
-
-The scripts first convert the relevant Excel sheets to UTF-8 CSV files, then generate statistical summaries, figure-ready summaries, and optional figures.
-
-## Should the Excel files be converted to CSV?
-
-Yes, for the analysis repository it is recommended to keep CSV versions of the analysis tables.
-
-Reasons:
-
-1. CSV files are plain text and are easy to inspect in GitHub.
-2. Git can track changes in CSV files more transparently than in `.xlsx` files.
-3. CSV files reduce dependence on Excel formatting or hidden workbook metadata.
-4. The public repository can include a reproducible pipeline: `Excel supplement -> CSV analysis input -> statistical outputs`.
-
-Recommended practice:
-
-- Keep the final `.xlsx` files as polished supplementary tables for journal submission.
-- Export the analysis sheets to CSV and use those CSV files as the direct input to the Python analysis scripts.
-- Deposit both the supplementary `.xlsx` files and CSV analysis inputs in Zenodo, or provide the `.xlsx` files as supplementary material and the CSV/code in Zenodo.
+The analysis scripts validate these CSV inputs and generate statistical summaries,
+figure-ready summaries, and optional figures.
 
 ## Directory structure
 
 ```text
-step3_python_analysis_package/
+swim-tunnel_respirometry_experiments_in_Japanese_eels/
   README.md
   requirements.txt
   run_all.py
   scripts/
-    00_export_xlsx_to_csv.py
+    common.py
     01_validate_inputs.py
     02_reanalysis_individual_endpoints.py
     03_speed_step_summaries.py
     04_make_figures.py
   data/
-    raw/
-      individual_endpoints.xlsx
-      speed_step_data.xlsx
     processed/
       individual_endpoints.csv
       speed_step_data.csv
