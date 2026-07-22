@@ -16,7 +16,6 @@ def run(cmd: list[str]) -> None:
 
 def main() -> None:
     py = sys.executable
-    run([py, str(SCRIPTS / "00_export_xlsx_to_csv.py")])
     run([py, str(SCRIPTS / "01_validate_inputs.py")])
     run([py, str(SCRIPTS / "02_reanalysis_individual_endpoints.py")])
     run([py, str(SCRIPTS / "03_speed_step_summaries.py")])
