@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+from itertools import combinations
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -132,6 +133,260 @@ def bootstrap_ci_independent(x: np.ndarray, y: np.ndarray, n_boot: int = 10000, 
     return float(lo), float(hi)
 
 
+def _extreme_statistic_regions(
+    perm_intercept: float,
+    perm_slope: float,
+    observed_intercept: float,
+    tol: float = 1e-12,
+) -> list[tuple[float, float]]:
+    """Return candidate-effect regions counted as at least as extreme.
+
+    For a candidate effect ``delta``, this solves
+
+        |perm_intercept + perm_slope * delta|
+            >= |observed_intercept - delta|.
+
+    The result is represented as one or two closed intervals, which may be
+    unbounded. This helper is used to invert the exact permutation tests.
+    """
+    q2 = perm_slope**2 - 1.0
+    q1 = 2.0 * (perm_intercept * perm_slope + observed_intercept)
+    q0 = perm_intercept**2 - observed_intercept**2
+
+    if math.isclose(q2, 0.0, rel_tol=tol, abs_tol=tol):
+        linear_scale = max(1.0, abs(q1), abs(q0))
+        if abs(q1) <= tol * linear_scale:
+            return [(-np.inf, np.inf)] if q0 >= -tol * linear_scale else []
+        root = -q0 / q1
+        return [(root, np.inf)] if q1 > 0 else [(-np.inf, root)]
+
+    discriminant = q1**2 - 4.0 * q2 * q0
+    disc_scale = max(1.0, q1**2, abs(4.0 * q2 * q0))
+    if discriminant < -tol * disc_scale:
+        return []
+    discriminant = max(0.0, discriminant)
+    sqrt_discriminant = math.sqrt(discriminant)
+    root_1 = (-q1 - sqrt_discriminant) / (2.0 * q2)
+    root_2 = (-q1 + sqrt_discriminant) / (2.0 * q2)
+    lower, upper = sorted((root_1, root_2))
+
+    # In the present sign-flip and label-permutation applications, q2 <= 0.
+    # The q2 > 0 branch is retained for numerical completeness.
+    if q2 < 0:
+        return [(lower, upper)]
+    return [(-np.inf, lower), (upper, np.inf)]
+
+
+def _smallest_enclosing_confidence_interval(
+    regions: list[tuple[float, float]],
+    n_permutations: int,
+    alpha: float,
+    tol: float = 1e-11,
+) -> tuple[float, float]:
+    """Return the smallest interval containing the inverted confidence set.
+
+    A candidate effect is retained when its exact two-sided permutation
+    p-value is at least ``alpha``. Exact tests are discrete, so the inverted
+    confidence set can occasionally be disconnected; this function returns
+    the smallest interval containing that set.
+    """
+    if n_permutations <= 0:
+        return (np.nan, np.nan)
+
+    # p >= alpha, expressed as an integer exceedance-count threshold.
+    threshold = max(1, math.ceil(alpha * n_permutations - 1e-12))
+
+    initial_count = 0
+    raw_events: list[tuple[float, int, int]] = []
+    for lower, upper in regions:
+        lower_is_inf = np.isneginf(lower)
+        upper_is_inf = np.isposinf(upper)
+        if lower_is_inf:
+            initial_count += 1
+        if not lower_is_inf:
+            raw_events.append((float(lower), 1, 0))  # interval starts
+        if not upper_is_inf:
+            raw_events.append((float(upper), 0, 1))  # interval ends
+
+    raw_events.sort(key=lambda item: item[0])
+    events: list[list[float | int]] = []
+    for position, n_start, n_end in raw_events:
+        if (
+            not events
+            or not math.isclose(
+                position, float(events[-1][0]), rel_tol=tol, abs_tol=tol
+            )
+        ):
+            events.append([position, n_start, n_end])
+        else:
+            events[-1][1] = int(events[-1][1]) + n_start
+            events[-1][2] = int(events[-1][2]) + n_end
+
+    current_count = initial_count  # count on the open interval before event
+    confidence_lower: float | None = -np.inf if current_count >= threshold else None
+    confidence_upper: float | None = None
+
+    for i, (position_raw, starts_raw, ends_raw) in enumerate(events):
+        position = float(position_raw)
+        starts = int(starts_raw)
+        ends = int(ends_raw)
+
+        # Accepted open interval immediately to the left of this event.
+        if current_count >= threshold:
+            confidence_upper = position
+
+        # Closed intervals that start or end here are both counted at the point.
+        at_event_count = current_count + starts
+        if at_event_count >= threshold:
+            if confidence_lower is None:
+                confidence_lower = position
+            confidence_upper = position
+
+        # Count on the open interval immediately to the right of this event.
+        after_event_count = current_count + starts - ends
+        next_position = (
+            float(events[i + 1][0]) if i + 1 < len(events) else np.inf
+        )
+        if after_event_count >= threshold:
+            if confidence_lower is None:
+                confidence_lower = position
+            confidence_upper = next_position
+
+        current_count = after_event_count
+
+    if confidence_lower is None:
+        return (np.nan, np.nan)
+    if confidence_upper is None:
+        confidence_upper = np.inf
+    return (float(confidence_lower), float(confidence_upper))
+
+
+def paired_signflip_ci(
+    x: np.ndarray,
+    y: np.ndarray,
+    confidence_level: float = 0.95,
+    max_exact_permutations: int = 200000,
+) -> tuple[float, float, str]:
+    """Invert the exact paired sign-flip test for the effect x - y.
+
+    The returned limits are the smallest interval containing the exact
+    confidence set. If the exact set is unbounded, infinite limits are
+    returned and ``status`` records the type of unboundedness.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    mask = np.isfinite(x) & np.isfinite(y)
+    differences = x[mask] - y[mask]
+    n = differences.size
+    if n == 0:
+        return (np.nan, np.nan, "not_estimable_no_pairs")
+
+    n_sign_patterns = 2**n
+    if n_sign_patterns > max_exact_permutations:
+        return (np.nan, np.nan, "not_computed_exact_space_too_large")
+
+    bit_patterns = np.arange(n_sign_patterns, dtype=np.uint64)[:, None]
+    bit_positions = np.arange(n, dtype=np.uint64)[None, :]
+    signs = np.where((bit_patterns >> bit_positions) & 1, 1.0, -1.0)
+
+    estimate = float(np.mean(differences))
+    perm_intercepts = (signs @ differences) / n
+    perm_slopes = -np.mean(signs, axis=1)
+
+    regions: list[tuple[float, float]] = []
+    for intercept, slope in zip(perm_intercepts, perm_slopes):
+        regions.extend(
+            _extreme_statistic_regions(
+                float(intercept), float(slope), estimate
+            )
+        )
+
+    alpha = 1.0 - confidence_level
+    lower, upper = _smallest_enclosing_confidence_interval(
+        regions, n_sign_patterns, alpha
+    )
+    if np.isneginf(lower) and np.isposinf(upper):
+        status = "unbounded_both_sides"
+    elif np.isneginf(lower):
+        status = "unbounded_lower"
+    elif np.isposinf(upper):
+        status = "unbounded_upper"
+    elif np.isfinite(lower) and np.isfinite(upper):
+        status = "finite"
+    else:
+        status = "not_estimable"
+    return (lower, upper, status)
+
+
+def independent_permutation_ci(
+    x: np.ndarray,
+    y: np.ndarray,
+    confidence_level: float = 0.95,
+    max_exact_permutations: int = 200000,
+) -> tuple[float, float, str]:
+    """Invert the exact two-sample label-permutation test for y - x.
+
+    This confidence set uses an additive location-shift formulation: under a
+    candidate effect ``delta``, ``delta`` is subtracted from y before labels
+    are permuted. The returned limits are the smallest interval containing
+    the exact confidence set.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    x = x[np.isfinite(x)]
+    y = y[np.isfinite(y)]
+    nx = x.size
+    ny = y.size
+    if nx == 0 or ny == 0:
+        return (np.nan, np.nan, "not_estimable_empty_group")
+
+    n_total = nx + ny
+    n_allocations = math.comb(n_total, nx)
+    if n_allocations > max_exact_permutations:
+        return (np.nan, np.nan, "not_computed_exact_space_too_large")
+
+    estimate = float(np.mean(y) - np.mean(x))
+    pooled_intercepts = np.concatenate([x, y])
+    # Under candidate delta, y is shifted to y - delta.
+    pooled_slopes = np.concatenate([np.zeros(nx), -np.ones(ny)])
+
+    regions: list[tuple[float, float]] = []
+    for group_x_indices in combinations(range(n_total), nx):
+        in_group_x = np.zeros(n_total, dtype=bool)
+        in_group_x[list(group_x_indices)] = True
+        in_group_y = ~in_group_x
+
+        perm_intercept = float(
+            np.mean(pooled_intercepts[in_group_y])
+            - np.mean(pooled_intercepts[in_group_x])
+        )
+        perm_slope = float(
+            np.mean(pooled_slopes[in_group_y])
+            - np.mean(pooled_slopes[in_group_x])
+        )
+        regions.extend(
+            _extreme_statistic_regions(
+                perm_intercept, perm_slope, estimate
+            )
+        )
+
+    alpha = 1.0 - confidence_level
+    lower, upper = _smallest_enclosing_confidence_interval(
+        regions, n_allocations, alpha
+    )
+    if np.isneginf(lower) and np.isposinf(upper):
+        status = "unbounded_both_sides"
+    elif np.isneginf(lower):
+        status = "unbounded_lower"
+    elif np.isposinf(upper):
+        status = "unbounded_upper"
+    elif np.isfinite(lower) and np.isfinite(upper):
+        status = "finite"
+    else:
+        status = "not_estimable"
+    return (lower, upper, status)
+
+
 def paired_permutation_p(x: np.ndarray, y: np.ndarray, n_perm: int = 10000, seed: int = 20260625) -> float:
     """Two-sided sign-flip permutation test for mean paired difference x - y."""
     x = np.asarray(x, dtype=float)
@@ -159,16 +414,34 @@ def paired_permutation_p(x: np.ndarray, y: np.ndarray, n_perm: int = 10000, seed
 
 
 def independent_permutation_p(x: np.ndarray, y: np.ndarray, n_perm: int = 10000, seed: int = 20260625) -> float:
-    """Two-sided permutation test for mean difference y - x."""
+    """Two-sided permutation test for mean difference y - x.
+
+    Exact enumeration is used whenever the number of distinct label
+    allocations is at most 200,000; otherwise a Monte Carlo test is used.
+    """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     x = x[np.isfinite(x)]
     y = y[np.isfinite(y)]
     if x.size == 0 or y.size == 0:
         return np.nan
+
     obs = abs(np.mean(y) - np.mean(x))
     pooled = np.concatenate([x, y])
     nx = x.size
+    n_total = pooled.size
+    n_allocations = math.comb(n_total, nx)
+
+    if n_allocations <= 200000:
+        stats = np.empty(n_allocations, dtype=float)
+        for i, group_x_indices in enumerate(combinations(range(n_total), nx)):
+            in_group_x = np.zeros(n_total, dtype=bool)
+            in_group_x[list(group_x_indices)] = True
+            stats[i] = abs(
+                np.mean(pooled[~in_group_x]) - np.mean(pooled[in_group_x])
+            )
+        return float(np.mean(stats >= obs - 1e-15))
+
     rng = np.random.default_rng(seed)
     stats = np.empty(n_perm, dtype=float)
     for i in range(n_perm):
