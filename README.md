@@ -104,12 +104,14 @@ The analysis is deliberately not formulated as a full factorial model because th
 For each response variable, the scripts report:
 
 - group sample sizes
-- means, SDs, medians
+- means, SDs, and medians
 - effect estimate
-- bootstrap 95% CI
-- permutation-test p-value
+- unadjusted 95% permutation confidence interval obtained by inversion of the corresponding exact permutation test
+- exact paired sign-flip p-value for paired contrasts or exact two-sample label-permutation p-value for independent-group contrasts
 - Benjamini-Hochberg FDR-adjusted p-value within each comparison and analysis set
 - exclusion counts and notes
+
+For independent-group contrasts, confidence intervals are obtained under an additive location-shift framework. Exact confidence sets that are unbounded because of very small sample size are reported as unbounded. Confidence intervals are unadjusted; FDR adjustment is applied only to p-values.
 
 ## Inclusion rules
 
@@ -165,7 +167,7 @@ TL and BW are not entered simultaneously. These models are exploratory and shoul
 
 ## Reproducibility note
 
-Set and record the random seed used for bootstrap and permutation tests. The default seed is 20260625.
+For the sample sizes in the present dataset, all sign patterns or group-label allocations are enumerated exactly. Therefore, the reported main permutation results do not depend on a random seed. The seed and n-permutation arguments are retained only for Monte Carlo fallback when the exact permutation space is too large to enumerate.
 
 
 ## LICENSE
