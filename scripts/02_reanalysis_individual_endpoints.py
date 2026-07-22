@@ -9,14 +9,14 @@ import statsmodels.api as sm
 
 from common import (
     bh_fdr,
-    bootstrap_ci_independent,
-    bootstrap_ci_paired,
     clean_status,
     clean_text,
     ensure_columns,
+    independent_permutation_ci,
     independent_permutation_p,
     mean_sd_median,
     paired_permutation_p,
+    paired_signflip_ci,
     read_table,
     to_numeric,
     write_csv_and_xlsx,
@@ -98,7 +98,14 @@ def count_excluded(df_all: pd.DataFrame, df_used: pd.DataFrame, response: str, m
     return int(len(excluded)), "; ".join(reasons)
 
 
-def paired_comparison(df_all: pd.DataFrame, response: str, analysis_set: str, seed: int, n_boot: int, n_perm: int) -> dict:
+def paired_comparison(
+    df_all: pd.DataFrame,
+    response: str,
+    analysis_set: str,
+    seed: int,
+    n_perm: int,
+    confidence_level: float,
+) -> dict:
     """FW25 - FW18 paired comparison in yellow eels."""
     pop_mask = df_all["experimental_condition"].isin(["FW25", "FW18"])
     d = analysis_filter(df_all.loc[pop_mask], response, analysis_set)
@@ -112,7 +119,9 @@ def paired_comparison(df_all: pd.DataFrame, response: str, analysis_set: str, se
     s2 = mean_sd_median(y)
     diff = x - y
     diff_stats = mean_sd_median(diff)
-    ci_lo, ci_hi = bootstrap_ci_paired(x, y, n_boot=n_boot, seed=seed)
+    ci_lo, ci_hi, ci_status = paired_signflip_ci(
+        x, y, confidence_level=confidence_level
+    )
     p = paired_permutation_p(x, y, n_perm=n_perm, seed=seed)
     n_excl, reasons = count_excluded(df_all, d, response, pop_mask)
 
@@ -136,7 +145,10 @@ def paired_comparison(df_all: pd.DataFrame, response: str, analysis_set: str, se
         "estimate_difference": diff_stats["mean"],
         "ci_lower": ci_lo,
         "ci_upper": ci_hi,
-        "test_method": "paired sign-flip permutation test; bootstrap percentile CI for mean paired difference",
+        "confidence_level": confidence_level,
+        "ci_method": "inversion of the exact paired sign-flip permutation test",
+        "ci_status": ci_status,
+        "test_method": "exact paired sign-flip permutation test",
         "p_value": p,
         "n_excluded_from_population": n_excl,
         "exclusion_reason_summary": reasons,
@@ -156,8 +168,8 @@ def independent_comparison(
     estimate_note: str,
     interpretation_note: str,
     seed: int,
-    n_boot: int,
     n_perm: int,
+    confidence_level: float,
 ) -> dict:
     pop_mask = group1_mask | group2_mask
     d = analysis_filter(df_all.loc[pop_mask], response, analysis_set)
@@ -166,7 +178,9 @@ def independent_comparison(
 
     s1 = mean_sd_median(x)
     s2 = mean_sd_median(y)
-    ci_lo, ci_hi = bootstrap_ci_independent(x, y, n_boot=n_boot, seed=seed)
+    ci_lo, ci_hi, ci_status = independent_permutation_ci(
+        x, y, confidence_level=confidence_level
+    )
     p = independent_permutation_p(x, y, n_perm=n_perm, seed=seed)
     n_excl, reasons = count_excluded(df_all, d, response, pop_mask)
 
@@ -190,7 +204,10 @@ def independent_comparison(
         "estimate_difference": s2["mean"] - s1["mean"] if s1["n"] > 0 and s2["n"] > 0 else np.nan,
         "ci_lower": ci_lo,
         "ci_upper": ci_hi,
-        "test_method": "two-sample permutation test; bootstrap percentile CI for mean difference",
+        "confidence_level": confidence_level,
+        "ci_method": "inversion of the exact two-sample label-permutation test under an additive location-shift framework",
+        "ci_status": ci_status,
+        "test_method": "exact two-sample label-permutation test",
         "p_value": p,
         "n_excluded_from_population": n_excl,
         "exclusion_reason_summary": reasons,
@@ -198,7 +215,12 @@ def independent_comparison(
     }
 
 
-def make_s4(df: pd.DataFrame, seed: int, n_boot: int, n_perm: int) -> pd.DataFrame:
+def make_s4(
+    df: pd.DataFrame,
+    seed: int,
+    n_perm: int,
+    confidence_level: float,
+) -> pd.DataFrame:
     rows = []
     analysis_sets_for_kind = {
         "ucrit": ["main"],
@@ -209,7 +231,11 @@ def make_s4(df: pd.DataFrame, seed: int, n_boot: int, n_perm: int) -> pd.DataFra
     for response, kind in ENDPOINTS.items():
         for analysis_set in analysis_sets_for_kind[kind]:
             # 1. FW25 vs FW18 paired.
-            rows.append(paired_comparison(df, response, analysis_set, seed, n_boot, n_perm))
+            rows.append(
+                paired_comparison(
+                    df, response, analysis_set, seed, n_perm, confidence_level
+                )
+            )
 
             # 2. Y2 FW18 vs Y2 SW18; estimate SW18 - FW18.
             g1 = (df["silvering_stage"] == "Y2") & (df["experimental_condition"] == "FW18")
@@ -221,7 +247,7 @@ def make_s4(df: pd.DataFrame, seed: int, n_boot: int, n_perm: int) -> pd.DataFra
                 group1_name="Y2_FW18", group2_name="Y2_SW18",
                 estimate_note="Exploratory Y2 freshwater-seawater comparison at 18 C; estimate = SW18 - FW18.",
                 interpretation_note="Exploratory salinity-associated comparison; independent groups with differences in cohort/history and fasting duration.",
-                seed=seed, n_boot=n_boot, n_perm=n_perm,
+                seed=seed, n_perm=n_perm, confidence_level=confidence_level,
             ))
 
             # 3. SW18 Y2 vs SW18 S1; estimate S1 - Y2.
@@ -234,13 +260,20 @@ def make_s4(df: pd.DataFrame, seed: int, n_boot: int, n_perm: int) -> pd.DataFra
                 group1_name="SW18_Y2", group2_name="SW18_S1",
                 estimate_note="Stage-associated comparison under SW18; estimate = S1 - Y2.",
                 interpretation_note="Stage-associated comparison; interpret cautiously because silvering stage and body size may be confounded.",
-                seed=seed, n_boot=n_boot, n_perm=n_perm,
+                seed=seed, n_perm=n_perm, confidence_level=confidence_level,
             ))
 
     out = pd.DataFrame(rows)
     out["p_value_fdr"] = np.nan
     for _, idx in out.groupby(["comparison", "analysis_set"]).groups.items():
         out.loc[idx, "p_value_fdr"] = bh_fdr(out.loc[idx, "p_value"])
+
+    alpha = 1.0 - confidence_level
+    out["zero_retained_by_permutation_test"] = out["p_value"] >= alpha
+    out["zero_inside_reported_interval"] = (
+        (out["ci_lower"] <= 0.0) & (out["ci_upper"] >= 0.0)
+    )
+    out.loc[out["ci_status"].str.startswith("not_"), "zero_inside_reported_interval"] = np.nan
     return out
 
 
@@ -326,14 +359,19 @@ def main() -> None:
     parser.add_argument("--s2", default="data/processed/individual_endpoints.csv")
     parser.add_argument("--out-dir", default="outputs/tables")
     parser.add_argument("--seed", type=int, default=20260625)
-    parser.add_argument("--n-boot", type=int, default=10000)
     parser.add_argument("--n-perm", type=int, default=10000)
+    parser.add_argument("--confidence-level", type=float, default=0.95)
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
     df = prepare_s2(Path(args.s2))
 
-    s4 = make_s4(df, seed=args.seed, n_boot=args.n_boot, n_perm=args.n_perm)
+    s4 = make_s4(
+        df,
+        seed=args.seed,
+        n_perm=args.n_perm,
+        confidence_level=args.confidence_level,
+    )
     write_csv_and_xlsx(
         s4,
         out_dir / "Table_S4_statistical_summary.csv",
