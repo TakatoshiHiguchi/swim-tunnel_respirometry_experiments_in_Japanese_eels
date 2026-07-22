@@ -374,11 +374,11 @@ def main() -> None:
     )
     write_csv_and_xlsx(
         s4,
-        out_dir / "Table_S4_statistical_summary.csv",
-        out_dir / "Table_S4_statistical_summary.xlsx",
+        out_dir / "Table_S5_statistical_summary.csv",
+        out_dir / "Table_S5_statistical_summary.xlsx",
         sheet_name="Table_S4",
     )
-    print(f"Wrote {out_dir / 'Table_S4_statistical_summary.csv'}")
+    print(f"Wrote {out_dir / 'Table_S5_statistical_summary.csv'}")
 
     bs = body_size_sensitivity(df)
     write_csv_and_xlsx(
