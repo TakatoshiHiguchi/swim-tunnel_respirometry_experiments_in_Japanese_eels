@@ -16,7 +16,7 @@ REQUIRED = [
 ]
 
 
-def add_mean_se(ax, df: pd.DataFrame, value_col: str, label: str) -> None:
+def add_mean_sd(ax, df: pd.DataFrame, value_col: str, label: str) -> None:
     g = (
         df.dropna(subset=[value_col])
         .groupby("swimming_speed_m_s")
@@ -26,7 +26,7 @@ def add_mean_se(ax, df: pd.DataFrame, value_col: str, label: str) -> None:
     if g.empty:
         return
     g["se"] = g["sd"] / np.sqrt(g["n"])
-    ax.errorbar(g["swimming_speed_m_s"], g["mean"], yerr=g["se"], marker="o", label=label, capsize=3)
+    ax.errorbar(g["swimming_speed_m_s"], g["mean"], yerr=g["sd"], marker="o", label=label, capsize=3)
 
 
 def make_plot(df: pd.DataFrame, value_col: str, y_label: str, out_path: Path, active_only: bool = False) -> None:
@@ -41,7 +41,7 @@ def make_plot(df: pd.DataFrame, value_col: str, y_label: str, out_path: Path, ac
             continue
         # Individual points, slightly transparent; matplotlib default colors are used.
         ax.scatter(sub["swimming_speed_m_s"], sub[value_col], alpha=0.35, s=20)
-        add_mean_se(ax, sub, value_col, cond)
+        add_mean_sd(ax, sub, value_col, cond)
     ax.set_xlabel("Swimming speed (m s$^{-1}$)")
     ax.set_ylabel(y_label)
     ax.legend(title="Condition")
